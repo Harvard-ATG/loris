@@ -43,7 +43,10 @@ class S3Resolver(_AbstractResolver):
         directory = os.path.dirname(path)
         if not os.path.exists(directory):
             logger.debug("Attempting to create directories for %s" % directory)
-            os.makedirs(directory)  # Could throw an exception, but what do we do with it?
+            # Doc claims that dir mode defaults to 0777, but in practice the mode
+            # seems to take on that of the parent directory, which in this case is 0755.
+            # Setting it to 0755 anyways, just in case.
+            os.makedirs(directory, 0755)  # Could throw an exception, but what do we do with it?
         else:
             logger.debug("Directory exists for %s" % directory)
 
