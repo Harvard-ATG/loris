@@ -29,13 +29,6 @@ class S3Resolver(_AbstractResolver):
             logger.error(message)
             raise ResolverException(500, message)
 
-        if 's3buckets' in self.config:
-            self.s3buckets = self.config['s3buckets'].split(',')
-        else:
-            message = 'Server Side Error: Configuration incomplete and cannot resolve. Missing setting for s3buckets.'
-            logger.error(message)
-            raise ResolverException(500, message)
-
     @staticmethod
     def format_from_ident(ident):
         return ident.split('.')[-1]
@@ -61,7 +54,7 @@ class S3Resolver(_AbstractResolver):
             # check that we can get to this object on S3
             s3 = boto.connect_s3()
 
-            bucketname, keyname = self._s3bucket_from_ident(ident)
+            bucketname, keyname = self.s3bucket_from_ident(ident)
             try:
                 bucket = s3.get_bucket(bucketname)
             except boto.exception.S3ResponseError as e:
@@ -81,7 +74,7 @@ class S3Resolver(_AbstractResolver):
         format = self.format_from_ident(ident)
         logger.debug('src format %s' % (format,))
 
-        bucketname, keyname = self._s3bucket_from_ident(ident)
+        bucketname, keyname = self.s3bucket_from_ident(ident)
 
         if os.path.exists(local_fp):
             logger.debug('src image from local disk: %s' % (local_fp,))
@@ -103,14 +96,25 @@ class S3Resolver(_AbstractResolver):
 
             return (local_fp, format)
 
-    def _s3bucket_from_ident(self, ident):
+    def s3bucket_from_ident(self, ident):
+        '''
+        Returns a tuple (bucketname, keyname) that is parsed from the identifier (ident)
+        component of the IIIF url that is received by loris. 
+
+        For example, if the following URL is received by loris:
+
+        http://localhost:8000/loris/:identifier/:region/:size/:rotation/default.jpg
+
+        Then it will be parsed as follows:
+
+            ident = "mybucket/images/1/foo.jpg"
+            bucketname = "mybucket"
+            keyname = "images/1/foo.jpg"
+        '''
         key_parts = ident.split('/', 1)
-        if len(key_parts) != 2:
+        if len(key_parts) == 2:
+            (bucketname, keyname) = key_parts
+        else:
             raise ResolverException(500, 'Invalid identifier. Expected bucket to prefix the identifier: bucket/ident')
-
-        (bucketname, keyname) = key_parts
-
-        if bucketname not in self.s3buckets:
-            raise ResolverException(500, 'Invalid bucket. Must be one of: %s' % self.s3buckets)
 
         return bucketname, keyname
