@@ -19,18 +19,13 @@ class S3Resolver(_AbstractResolver):
     '''
     def __init__(self, config):
         super(S3Resolver, self).__init__(config)
+	
+        logger.debug('loaded s3resolver with config: %s' % config)
 
         if 'cache_root' in self.config:
             self.cache_root = self.config['cache_root']
         else:
             message = 'Server Side Error: Configuration incomplete and cannot resolve. Missing setting for cache_root.'
-            logger.error(message)
-            raise ResolverException(500, message)
-
-        if 's3bucket' in self.config:
-            self.s3bucket = self.config['s3bucket']
-        else:
-            message = 'Server Side Error: Configuration incomplete and cannot resolve. Missing setting for s3bucket.'
             logger.error(message)
             raise ResolverException(500, message)
 
@@ -59,32 +54,33 @@ class S3Resolver(_AbstractResolver):
             # check that we can get to this object on S3
             s3 = boto.connect_s3()
 
+            bucketname, keyname = self.s3bucket_from_ident(ident)
             try:
-                bucket = s3.get_bucket(self.s3bucket)
+                bucket = s3.get_bucket(bucketname)
             except boto.exception.S3ResponseError as e:
                 logger.error(e)
                 return False
 
-            if bucket.get_key(ident):
+            if bucket.get_key(keyname):
                 return True
             else:
-                logger.debug('AWS key %s does not exist' % (ident))
+                logger.debug('AWS key %s does not exist in bucket %s' % (keyname, bucketname))
                 return False
 
     def resolve(self, ident):
         ident = unquote(ident)
         local_fp = os.path.join(self.cache_root, ident)
-        logger.debug('local_fp: %s' % (local_fp))
+        logger.debug('ident: %s local_fp: %s' % (ident, local_fp))
         format = self.format_from_ident(ident)
         logger.debug('src format %s' % (format,))
+
+        bucketname, keyname = self.s3bucket_from_ident(ident)
 
         if os.path.exists(local_fp):
             logger.debug('src image from local disk: %s' % (local_fp,))
             return (local_fp, format)
         else:
             # get image from S3
-            bucketname = self.s3bucket
-            keyname = ident
             logger.debug('Getting img from AWS S3. bucketname, keyname: %s, %s' % (bucketname, keyname))
 
             s3 = boto.connect_s3()
@@ -99,3 +95,26 @@ class S3Resolver(_AbstractResolver):
                 logger.warn(e)
 
             return (local_fp, format)
+
+    def s3bucket_from_ident(self, ident):
+        '''
+        Returns a tuple (bucketname, keyname) that is parsed from the identifier (ident)
+        component of the IIIF url that is received by loris. 
+
+        For example, if the following URL is received by loris:
+
+        http://localhost:8000/loris/:identifier/:region/:size/:rotation/default.jpg
+
+        Then it will be parsed as follows:
+
+            ident = "mybucket/images/1/foo.jpg"
+            bucketname = "mybucket"
+            keyname = "images/1/foo.jpg"
+        '''
+        key_parts = ident.split('/', 1)
+        if len(key_parts) == 2:
+            (bucketname, keyname) = key_parts
+        else:
+            raise ResolverException(500, 'Invalid identifier. Expected bucket to prefix the identifier: bucket/ident')
+
+        return bucketname, keyname
