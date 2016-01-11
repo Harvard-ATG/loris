@@ -6,18 +6,18 @@
 #
 # CAUTION - This script deletes files. Be careful where you point it!
 #
-LOG="/var/log/loris/cache_clean.log"
+LOG="/var/log/loris2/cache_clean.log"
 
 # Check that the cache directories...
-IMG_CACHE_ROOT_DIR="/usr/local/share/images/loris"
-IMG_CACHE_DP_DIR="/var/cache/loris/img"
-IMG_CACHE_LINKS_DIR="/var/cache/loris/links"
+IMG_CACHE_ROOT_DIR="/usr/local/share/images/loris2"
+IMG_CACHE_DP_DIR="/var/cache/loris2"
 
 # ...is below a certain size...
 # REDUCE_TO=1048576 #1 gb
+REDUCE_TO=3145728 #3 gb
 # REDUCE_TO=1073741824 # 1 TB
 # REDUCE_TO=2147483648 # 2 TB
-REDUCE_TO=20971520 #20 gb
+#REDUCE_TO=20971520 #20 gb
 
 # ...and when it is larger, start deleting files accessed more than a certain 
 # number of days ago until the cache is smaller than the configured size.
@@ -36,7 +36,7 @@ current_usage_cache_dp () {
 }
 
 delete_total=0
-max_age=60 # days
+max_age=30 # days
 usage=$(($(current_usage_cache_dp)+$(current_usage_cache_root)))
 start_size=$usage
 run=1
