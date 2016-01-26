@@ -141,6 +141,9 @@ class TIF_Transformer(_PillowTransformer):
 class PNG_Transformer(_PillowTransformer):
     def __init__(self, config): super(PNG_Transformer, self).__init__(config)
 
+class GIF_Transformer(_PillowTransformer):
+    def __init__(self, config): super(GIF_Transformer, self).__init__(config)
+
 class _AbstractJP2Transformer(_AbstractTransformer):
     '''
     Shared methods and configuration for the Kakadu and OpenJPEG transformers.
