@@ -15,7 +15,6 @@ class S3Resolver(_AbstractResolver):
     The config dictionary MUST contain
      * `cache_root`, which is the absolute path to the directory where source images
         should be cached.
-     * `s3_bucket`, which is the name of the s3 bucket that stores the images
     '''
     def __init__(self, config):
         super(S3Resolver, self).__init__(config)
