@@ -12,6 +12,7 @@ from werkzeug.http import parse_date, http_date
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 import json
+import re
 import loris_t
 
 
@@ -23,7 +24,7 @@ $ python -m unittest -v tests.webapp_t
 from the `/loris` (not `/loris/loris`) directory.
 """
 
-class Test_E_WebappUnit(loris_t.LorisTest):
+class WebappUnit(loris_t.LorisTest):
     def test_uri_from_info_request(self):
         info_path = '/%s/%s' % (self.test_jp2_color_id,'info.json')
 
@@ -47,7 +48,8 @@ class Test_E_WebappUnit(loris_t.LorisTest):
         expected = '/'.join((self.URI_BASE, self.test_jp2_color_id))
         self.assertEqual(base_uri, expected)
 
-class Test_F_WebappFunctional(loris_t.LorisTest):
+
+class WebappIntegration(loris_t.LorisTest):
     'Simulate working with the webapp over HTTP.'
 
     def test_bare_identifier_request_303(self):
@@ -63,15 +65,31 @@ class Test_F_WebappFunctional(loris_t.LorisTest):
         resp = self.client.get('/%s/' % (self.test_jp2_color_id,))
         self.assertEqual(resp.status_code, 404)
 
+    def test_access_control_allow_origin_on_bare_identifier(self):
+        resp = self.client.get('/%s' % (self.test_jp2_color_id,), follow_redirects=False)
+        self.assertEqual(resp.headers['access-control-allow-origin'], '*')
+
     def test_access_control_allow_origin_on_info_requests(self):
         uri = '/%s/info.json' % (self.test_jp2_color_id,)
         resp = self.client.get(uri)
         self.assertEqual(resp.headers['access-control-allow-origin'], '*')
 
     def test_access_control_allow_origin_on_img_request(self):
-        uri = '/%s/full/full/0/default.jpg' % (self.test_jp2_color_id,)
+        uri = '/%s/full/100,/0/default.jpg' % (self.test_jp2_color_id,)
         resp = self.client.get(uri)
         self.assertEqual(resp.headers['access-control-allow-origin'], '*')
+
+    def test_cors_regex_match(self):
+        self.app.cors_regex = re.compile('calhos')
+        to_get = '/%s/full/110,/0/default.jpg' % (self.test_jp2_color_id,)
+        resp = self.client.get(to_get)
+        self.assertEquals(resp.headers['Access-Control-Allow-Origin'], 'http://localhost/')
+
+    def test_cors_regex_no_match(self):
+        self.app.cors_regex = re.compile('fooxyz')
+        to_get = '/%s/full/120,/0/default.jpg' % (self.test_jp2_color_id,)
+        resp = self.client.get(to_get)
+        self.assertFalse(resp.headers.has_key('Access-Control-Allow-Origin'))
 
     def test_bare_broken_identifier_request_404(self):
         resp = self.client.get('/foo%2Fbar')
@@ -79,7 +97,7 @@ class Test_F_WebappFunctional(loris_t.LorisTest):
         self.assertEqual(resp.headers['content-type'], 'text/plain')
 
     def test_bare_identifier_request_303_gets_info(self):
-        # Follow the redirect. After that this is nearly a copy of 
+        # Follow the redirect. After that this is nearly a copy of
         # img_info_t.C_InfoFunctionalTests#test_jp2_info_dot_json_request
         to_get = '/%s' % (self.test_jp2_color_id,)
         resp = self.client.get(to_get, follow_redirects=True)
@@ -147,7 +165,7 @@ class Test_F_WebappFunctional(loris_t.LorisTest):
         # get an image
         resp = self.client.get(to_get, headers=Headers())
         self.assertEqual(resp.status_code, 200)
-        
+
 
     def test_info_sends_304(self):
         to_get = '/%s/info.json' % (self.test_jp2_color_id,)
@@ -209,10 +227,108 @@ class Test_F_WebappFunctional(loris_t.LorisTest):
         self.assertTrue(not any_files)
 
 
+class SizeRestriction(loris_t.LorisTest):
+    '''Tests for restriction of size parameter.'''
+
+    def setUp(self):
+        '''Set max_size_above_full to 100 for tests.'''
+        super(SizeRestriction, self).setUp()
+        self.app.max_size_above_full = 100
+
+    def test_json_no_size_above_full(self):
+        '''Is 'sizeAboveFull' removed from json?'''
+        request_path = '/%s/info.json' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse('sizeAboveFull' in resp.data)
+
+    def _test_json_has_size_above_full(self):
+        '''Does sizeAboveFull remain in info.json if size > 100?'''
+        self.app.max_size_above_full = 200
+        request_path = '/%s/info.json' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue('sizeAboveFull' in resp.data)
+
+
+    def test_full_full(self):
+        '''full/full has no size restrictions.'''
+        request_path = '/%s/full/full/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_percent_ok(self):
+        '''pct:100 is allowed.'''
+        request_path = '/%s/full/pct:100/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_percent_ok_200(self):
+        '''pct:200 is allowed is max_size_above_full is 200.'''
+        self.app.max_size_above_full = 200
+        request_path = '/%s/full/pct:200/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_percent_exceeds_100(self):
+        '''Restrict interpolation. So pct:101 must be rejected.'''
+        request_path = '/%s/full/pct:101/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_percent_exceeds_200(self):
+        '''Restrict interpolation to 200. So pct:201 must be rejected.'''
+        self.app.max_size_above_full = 200
+        request_path = '/%s/full/pct:201/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_size_width_ok(self):
+        '''Explicit width in size parameter is not larger than image size.'''
+        request_path = '/%s/full/3600,/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_size_width_too_big(self):
+        '''Explicit width in size parameter is larger than image size.'''
+        request_path = '/%s/full/3601,/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_size_height_ok(self):
+        '''Explicit height in size parameter is not larger than image height.'''
+        request_path = '/%s/full/,2987/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_size_height_to_big(self):
+        '''Explicit height in size parameter is larger than image height.'''
+        request_path = '/%s/full/,2988/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_region_too_big(self):
+        '''It's not allowed to make a region larger than 100% of original
+        region size.'''
+        request_path = '/%s/100,100,100,100/120,/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 404)
+
+
+    def test_no_restriction(self):
+        '''If max_size_above_full ist set to 0, users can request
+        any image size.'''
+        self.app.max_size_above_full = 0
+        request_path = '/%s/full/pct:120/0/default.jpg' % (self.test_jpeg_id,)
+        resp = self.client.get(request_path)
+        self.assertEqual(resp.status_code, 200)
+
+
 def suite():
     import unittest
     test_suites = []
-    test_suites.append(unittest.makeSuite(Test_E_WebappUnit, 'test'))
-    test_suites.append(unittest.makeSuite(Test_F_WebappFunctional, 'test'))
+    test_suites.append(unittest.makeSuite(WebappUnit, 'test'))
+    test_suites.append(unittest.makeSuite(WebappIntegration, 'test'))
+    test_suites.append(unittest.makeSuite(SizeRestriction, 'test'))
     test_suite = unittest.TestSuite(test_suites)
     return test_suite

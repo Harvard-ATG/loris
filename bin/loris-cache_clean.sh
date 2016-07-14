@@ -10,6 +10,9 @@
 
 LOG="/var/log/loris2/cache_clean.log"
 
+echo -ne "$(date +[%c]) " >> $LOG
+echo "starting" >> $LOG
+
 # Check that the image cache directory...
 IMG_CACHE_DIR="/var/cache/loris/img"
 
@@ -27,10 +30,19 @@ REDUCE_TO=1048576 #1 gb
 # executions of this script.
 
 current_usage () {
+	# Standard implementation (slow):
 	du -sk $IMG_CACHE_DIR | cut -f 1                     # Fine for a few GB...
+
+	# Alternative implementation #1 (faster, requires quota setup):
 	# quota -Q -u loris | grep sdb1 | awk '{ print $2 }' # ...much faster!!
 	# Note that you'll like need to change the name of the filesystem above if
 	# using the `quota` version.
+
+	# Alternative implementation #2 (faster, requires dedicated cache mount):
+	# df -P | grep /data | awk '{print $3}'
+	# Note that using df is fast, but it assumes that your cache has its own
+	# dedicated mounted partition. Replace "/data" with the appropriate mount
+	# point in the code above to use this option.
 }
 
 delete_total=0
@@ -47,6 +59,21 @@ while [ $usage -gt $REDUCE_TO ] && [ $max_age -ge -1 ]; do
 		let delete_total+=1
 	done
 
+	# If the for loop above is not working well for you, you can try uncommenting
+	# the alternate implementation below; this version requires write access to
+	# /tmp and uses awk, but it allows progress to be monitored by examining temp
+	# files, and its use of xargs may make it more tolerant of very large lists.
+	#### begin alternate code ####
+	#tmpfile=/tmp/loris-cache-clean-$max_age.tmp
+	#find $IMG_CACHE_DIR -type f -atime +$max_age > $tmpfile
+	#line_count=`wc $tmpfile | awk '{print $1}'`
+	#let delete_total+=$line_count
+	#cat $tmpfile | xargs rm
+	#### end alternate code ####
+
+	echo -ne "$(date +[%c]) " >> $LOG
+	echo "in progress - max age = $max_age, Delete total = $delete_total" >> $LOG
+
 	# empty directories
 	find $IMG_CACHE_DIR -mindepth 1 -type d -empty -delete
 
@@ -56,7 +83,7 @@ done
 
 echo -ne "$(date +[%c]) " >> $LOG
 if [ $run == 0 ]; then
-	echo -ne "Deleted $delete_count files to " >> $LOG
+	echo -ne "Deleted $delete_total files to " >> $LOG
 	echo "get cache from $start_size kb to $usage kb." >> $LOG
 else
 	echo "Cache at $usage kb (no deletes required)." >> $LOG

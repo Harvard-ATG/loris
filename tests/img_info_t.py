@@ -4,6 +4,7 @@
 from loris import img_info
 from loris.constants import PROTOCOL
 from os import path
+from urllib import unquote
 from werkzeug.datastructures import Headers
 import json
 import loris_t
@@ -17,7 +18,7 @@ $ python -m unittest -v tests.img_info_t
 from the `/loris` (not `/loris/loris`) directory.
 """
 
-class Test_B_InfoUnit(loris_t.LorisTest):
+class InfoUnit(loris_t.LorisTest):
     'Tests ImageInfo constructors.'
 
     def test_color_jp2_info_from_image(self):
@@ -39,7 +40,8 @@ class Test_B_InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull"
+                    "sizeAboveFull",
+                    "regionSquare"
                 ]
             }
         ]
@@ -103,11 +105,13 @@ class Test_B_InfoUnit(loris_t.LorisTest):
                 "gray"
             ],
             "supports": [
-                "canonicalLinkHeader",
-                "profileLinkHeader",
-                "mirroring",
-                "rotationArbitrary",
-                "sizeAboveFull" ]
+                    "canonicalLinkHeader",
+                    "profileLinkHeader",
+                    "mirroring",
+                    "rotationArbitrary",
+                    "sizeAboveFull",
+                    "regionSquare"
+                ]
             }
         ]
         formats = [ "jpg", "png", "gif", "webp" ]
@@ -138,7 +142,8 @@ class Test_B_InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull"
+                    "sizeAboveFull",
+                    "regionSquare"
                 ]
             }
         ]
@@ -167,7 +172,8 @@ class Test_B_InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull"
+                    "sizeAboveFull",
+                    "regionSquare"
                 ]
             }
         ]
@@ -197,7 +203,8 @@ class Test_B_InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull"
+                    "sizeAboveFull",
+                    "regionSquare"
                 ]
             }
         ]
@@ -222,7 +229,8 @@ class Test_B_InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull"
+                    "sizeAboveFull",
+                    "regionSquare"
                 ]
             }
         ]
@@ -236,7 +244,7 @@ class Test_B_InfoUnit(loris_t.LorisTest):
         self.assertEqual(info.protocol, PROTOCOL)
 
 
-class Test_C_InfoFunctional(loris_t.LorisTest):
+class InfoFunctional(loris_t.LorisTest):
     'Simulate working with the API over HTTP.'
 
     def test_jp2_info_dot_json_request(self):
@@ -255,7 +263,8 @@ class Test_C_InfoFunctional(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull"
+                    "sizeAboveFull",
+                    "regionSquare"
                 ]
             }
         ]
@@ -295,17 +304,26 @@ class Test_C_InfoFunctional(loris_t.LorisTest):
         '''
         self.assertTrue(''.join(lh.split()) in link_header)
 
-# class Test_D_InfoCache(loris_t.LorisTest):
-#     pass
-#
-#   def test_info_cache(self):
-#       pass
+
+class InfoCache(loris_t.LorisTest):
+
+    def test_info_goes_to_http_fs_cache(self):
+        # there isn't a way to do a fake HTTPS request, but this at least
+        # confirms that HTTP goes to ther right place.
+        request_uri = '/%s/%s' % (self.test_jp2_color_id,'info.json')
+        resp = self.client.get(request_uri)
+        expected_path = path.join(
+            self.app.info_cache.http_root,
+            unquote(self.test_jp2_color_id),
+            'info.json'
+        )
+        self.assertTrue(path.exists(expected_path))
 
 def suite():
     import unittest
     test_suites = []
-    test_suites.append(unittest.makeSuite(Test_B_InfoUnit, 'test'))
-    test_suites.append(unittest.makeSuite(Test_C_InfoFunctional, 'test'))
-    # test_suites.append(unittest.makeSuite(Test_D_InfoCache, 'test'))
+    test_suites.append(unittest.makeSuite(InfoUnit, 'test'))
+    test_suites.append(unittest.makeSuite(InfoFunctional, 'test'))
+    test_suites.append(unittest.makeSuite(InfoCache, 'test'))
     test_suite = unittest.TestSuite(test_suites)
     return test_suite
