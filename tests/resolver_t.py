@@ -1,11 +1,18 @@
 #-*- coding: utf-8 -*-
 from loris.loris_exception import ResolverException
-from loris.resolver import SimpleHTTPResolver, TemplateHTTPResolver
-from loris.resolver import SourceImageCachingResolver, SimpleFSResolver
+from loris.resolver import (
+        _AbstractResolver,
+        SimpleHTTPResolver,
+        TemplateHTTPResolver,
+        SourceImageCachingResolver,
+        SimpleFSResolver
+    )
 from os.path import dirname
 from os.path import isfile
 from os.path import join
 from os.path import realpath
+from os.path import exists
+import unittest
 from urllib import unquote, quote_plus
 
 import loris_t
@@ -21,8 +28,20 @@ $ python -m unittest tests.resolver_t
 from the `/loris` (not `/loris/loris`) directory.
 """
 
+class Test_AbstractResolver(unittest.TestCase):
+
+    def test_format_from_ident(self):
+        self.assertEqual(_AbstractResolver(None).format_from_ident('001.JPG'), 'jpg')
+        self.assertEqual(_AbstractResolver(None).format_from_ident('001.jpeg'), 'jpg')
+        self.assertEqual(_AbstractResolver(None).format_from_ident('001.tiff'), 'tif')
+        self.assertEqual(_AbstractResolver(None).format_from_ident('datastreams/master.tiff'), 'tif')
+        with self.assertRaises(ResolverException):
+            _AbstractResolver(None).format_from_ident('datastream/content')
+        with self.assertRaises(ResolverException):
+            _AbstractResolver(None).format_from_ident('datastream/content.master')
+
+
 class Test_SimpleFSResolver(loris_t.LorisTest):
-    'Test that the default resolver works'
 
     def test_configured_resolver(self):
         expected_path = self.test_jp2_color_fp
@@ -43,8 +62,8 @@ class Test_SimpleFSResolver(loris_t.LorisTest):
         resolved_path, fmt = self.app.resolver.resolve(self.test_altpng_id)
         self.assertEqual(self.test_altpng_fp, resolved_path)
 
+
 class Test_SourceImageCachingResolver(loris_t.LorisTest):
-    'Test that the SourceImageCachingResolver resolver works'
 
     def test_source_image_caching_resolver(self):
         # First we need to change the resolver on the test instance of the 
@@ -65,12 +84,8 @@ class Test_SourceImageCachingResolver(loris_t.LorisTest):
         self.assertTrue(isfile(resolved_path))
 
 class Test_SimpleHTTPResolver(loris_t.LorisTest):
-    'Test that the SourceImageCachingResolver resolver works'
 
-    @responses.activate
-    def test_simple_http_resolver(self):
-
-        # Mock out some urls for testing....
+    def _mock_urls(self):
         responses.add(responses.GET, 'http://sample.sample/0001',
                       body='II*\x00\x0c\x00\x00\x00\x80\x00  \x0e\x00\x00\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00\x02\x01\x03\x00\x01\x00\x00\x00\x08\x00\x00\x00\x03\x01\x03\x00\x01\x00\x00\x00\x05\x00\x00\x00\x06\x01\x03\x00\x01\x00\x00\x00\x03\x00\x00\x00\x11\x01\x04\x00\x01\x00\x00\x00\x08\x00\x00\x00\x15\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00\x16\x01\x03\x00\x01\x00\x00\x00\x08\x00\x00\x00\x17\x01\x04\x00\x01\x00\x00\x00\x04\x00\x00\x00\x1a\x01\x05\x00\x01\x00\x00\x00\xba\x00\x00\x00\x1b\x01\x05\x00\x01\x00\x00\x00\xc2\x00\x00\x00\x1c\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00(\x01\x03\x00\x01\x00\x00\x00\x02\x00\x00\x00@\x01\x03\x00\x00\x03\x00\x00\xca\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00H\x00\x00\x00\x01\x00\x00\x00H\x00\x00\x00\x01\x00\x00\x00\xff`\xe6q\x19\x08\x00\x00\x80\t\x00\x00\x80\n\x00\x00\x80\x0b\x00\x00\x80\x0c\x00\x00\x80\r',
                       status=200,
@@ -90,6 +105,10 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
                       status=404,
                       content_type='application/html')
 
+    @responses.activate
+    def test_simple_http_resolver(self):
+
+        self._mock_urls()
 
         # First we test with no config...
         config = {
@@ -98,14 +117,14 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
 
         # Then we test missing source_prefix and uri_resolvable
         config = {
-            'cache_root' : self.app.img_cache.cache_root
+            'cache_root' : self.SRC_IMAGE_CACHE
         }
         self.assertRaises(ResolverException, lambda: SimpleHTTPResolver(config))
 
         # Then we test with the full config...
         #TODO: More granular testing of these settings...
         config = {
-            'cache_root' : self.app.img_cache.cache_root,
+            'cache_root' : self.SRC_IMAGE_CACHE,
             'source_prefix' : 'http://www.mysite/',
             'source_suffix' : '/accessMaster',
             'default_format' : 'jp2',
@@ -116,7 +135,6 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
         }
 
         self.app.resolver = SimpleHTTPResolver(config)
-        self.assertEqual(self.app.resolver.cache_root, self.app.img_cache.cache_root)
         self.assertEqual(self.app.resolver.source_prefix, 'http://www.mysite/')
         self.assertEqual(self.app.resolver.source_suffix, '/accessMaster')
         self.assertEqual(self.app.resolver.default_format, 'jp2')
@@ -127,12 +145,11 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
 
         # Then we test with a barebones default config...
         config = {
-            'cache_root' : self.app.img_cache.cache_root,
+            'cache_root' : self.SRC_IMAGE_CACHE,
             'uri_resolvable' : True
         }
 
         self.app.resolver = SimpleHTTPResolver(config)
-        self.assertEqual(self.app.resolver.cache_root, self.app.img_cache.cache_root)
         self.assertEqual(self.app.resolver.source_prefix, '')
         self.assertEqual(self.app.resolver.source_suffix, '')
         self.assertEqual(self.app.resolver.default_format, None)
@@ -143,7 +160,7 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
 
         # Finally with the test config for now....
         config = {
-            'cache_root' : self.app.img_cache.cache_root,
+            'cache_root' : self.SRC_IMAGE_CACHE,
             'source_prefix' : 'http://sample.sample/',
             'source_suffix' : '',
             'head_resolvable' : True,
@@ -151,7 +168,6 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
         }
 
         self.app.resolver = SimpleHTTPResolver(config)
-        self.assertEqual(self.app.resolver.cache_root, self.app.img_cache.cache_root)
         self.assertEqual(self.app.resolver.source_prefix, 'http://sample.sample/')
         self.assertEqual(self.app.resolver.source_suffix, '')
         self.assertEqual(self.app.resolver.default_format, None)
@@ -160,8 +176,7 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
 
         #Test with identifier only
         ident = '0001'
-        resolved_path, fmt = self.app.resolver.resolve(ident)
-        expected_path = join(self.app.img_cache.cache_root, '25')
+        expected_path = join(self.app.resolver.cache_root, '25')
         expected_path = join(expected_path, 'bbd')
         expected_path = join(expected_path, 'cd0')
         expected_path = join(expected_path, '6c3')
@@ -174,28 +189,30 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
         expected_path = join(expected_path, '032')
         expected_path = join(expected_path, 'loris_cache.tif')
 
+        resolved_path, fmt = self.app.resolver.resolve(ident)
         self.assertEqual(expected_path, resolved_path)
         self.assertEqual(fmt, 'tif')
         self.assertTrue(isfile(resolved_path))
 
         #Test with a full uri
         #Note: This seems weird but idents resolve wrong and removes a slash from //
-        ident = quote_plus('http:/sample.sample/0001')
-        resolved_path, fmt = self.app.resolver.resolve(ident)
-        expected_path = join(self.app.img_cache.cache_root, 'http')
-        expected_path = join(expected_path, '9d')
-        expected_path = join(expected_path, '423')
-        expected_path = join(expected_path, 'a05')
-        expected_path = join(expected_path, '863')
-        expected_path = join(expected_path, 'f9f')
-        expected_path = join(expected_path, '89d')
-        expected_path = join(expected_path, '06e')
-        expected_path = join(expected_path, '282')
-        expected_path = join(expected_path, 'e84')
-        expected_path = join(expected_path, '26c')
-        expected_path = join(expected_path, 'b78')
+        ident = quote_plus('http://sample.sample/0001')
+        expected_path = join(self.app.resolver.cache_root, 'http')
+        expected_path = join(expected_path, '32')
+        expected_path = join(expected_path, '3a5')
+        expected_path = join(expected_path, '353')
+        expected_path = join(expected_path, '8f5')
+        expected_path = join(expected_path, '0de')
+        expected_path = join(expected_path, '1d3')
+        expected_path = join(expected_path, '011')
+        expected_path = join(expected_path, '675')
+        expected_path = join(expected_path, 'ebc')
+        expected_path = join(expected_path, 'c75')
+        expected_path = join(expected_path, '083')
         expected_path = join(expected_path, 'loris_cache.tif')
 
+        self.assertFalse(exists(expected_path))
+        resolved_path, fmt = self.app.resolver.resolve(ident)
         self.assertEqual(expected_path, resolved_path)
         self.assertEqual(fmt, 'tif')
         self.assertTrue(isfile(resolved_path))
@@ -205,7 +222,7 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
         self.assertRaises(ResolverException, lambda: self.app.resolver.resolve(ident))
 
         #Test with a bad url
-        ident = quote_plus('http:/sample.sample/DOESNOTEXIST')
+        ident = quote_plus('http://sample.sample/DOESNOTEXIST')
         self.assertRaises(ResolverException, lambda: self.app.resolver.resolve(ident))
 
         #Test with no content-type or extension or default format
@@ -216,9 +233,11 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
         ident = '0003'
         self.assertRaises(ResolverException, lambda: self.app.resolver.resolve(ident))
 
-        #Tests with a default format...
+    @responses.activate
+    def test_with_default_format(self):
+        self._mock_urls()
         config = {
-            'cache_root' : self.app.img_cache.cache_root,
+            'cache_root' : self.SRC_IMAGE_CACHE,
             'source_prefix' : 'http://sample.sample/',
             'source_suffix' : '',
             'default_format' : 'tif',
@@ -233,15 +252,8 @@ class Test_SimpleHTTPResolver(loris_t.LorisTest):
         self.assertEqual(fmt, 'tif')
         self.assertTrue(isfile(resolved_path))
 
-        ident = '0003'
-        resolved_path, fmt = self.app.resolver.resolve(ident)
-        self.assertIsNotNone(resolved_path)
-        self.assertEqual(fmt, 'tif')
-        self.assertTrue(isfile(resolved_path))
-
 
 class Test_TemplateHTTPResolver(loris_t.LorisTest):
-    'Test TemplateHttpResolver'
 
     def test_template_http_resolver(self):
 
@@ -253,9 +265,15 @@ class Test_TemplateHTTPResolver(loris_t.LorisTest):
         config = {
             'cache_root' : self.app.img_cache.cache_root,
             'templates': 'a,b, c, d',
-            'a': 'http://mysite.com/images/%s',
-            'b': 'http://mysite.com/images/%s/access/',
-            'c': 'http://othersite.co/img/%s'
+            'a': {
+                'url': 'http://mysite.com/images/%s'
+            },
+            'b': {
+                'url': 'http://mysite.com/images/%s/access/'
+            },
+            'c': {
+                'url': 'http://othersite.co/img/%s'
+            }
         }
 
         self.app.resolver = TemplateHTTPResolver(config)
@@ -275,18 +293,19 @@ class Test_TemplateHTTPResolver(loris_t.LorisTest):
 
         # test web request uri logic
         self.assertEqual('http://mysite.com/images/foo.jpg',
-            self.app.resolver._web_request_url('a:foo.jpg'))
+            self.app.resolver._web_request_url('a:foo.jpg')[0])
         self.assertEqual('http://mysite.com/images/id1/access/',
-            self.app.resolver._web_request_url('b:id1'))
+            self.app.resolver._web_request_url('b:id1')[0])
         self.assertEqual('http://othersite.co/img/foo:bar:baz',
-            self.app.resolver._web_request_url('c:foo:bar:baz'))
+            self.app.resolver._web_request_url('c:foo:bar:baz')[0])
         self.assertEqual(None,
-            self.app.resolver._web_request_url('unknown:id2'))
+            self.app.resolver._web_request_url('unknown:id2')[0])
 
 
 def suite():
     import unittest
     test_suites = []
+    test_suites.append(unittest.makeSuite(Test_AbstractResolver, 'test'))
     test_suites.append(unittest.makeSuite(Test_SimpleFSResolver, 'test'))
     test_suites.append(unittest.makeSuite(Test_SourceImageCachingResolver, 'test'))
     test_suites.append(unittest.makeSuite(Test_SimpleHTTPResolver, 'test'))

@@ -2,6 +2,7 @@
 #-*- coding: utf-8 -*-
 
 from loris import img_info
+from loris import loris_exception
 from loris.constants import PROTOCOL
 from os import path
 from urllib import unquote
@@ -40,14 +41,14 @@ class InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull",
                     "regionSquare"
                 ]
             }
         ]
 
         formats = ["jpg", "png", "gif", "webp"]
-        info = img_info.ImageInfo.from_image_file(uri, fp, fmt, formats)
+        #test that sizeAboveFull isn't in profile if max_size_above_full is > 0 and <= 100
+        info = img_info.ImageInfo.from_image_file(uri, fp, fmt, formats, max_size_above_full=80)
 
         self.assertEqual(info.width, self.test_jp2_color_dims[0])
         self.assertEqual(info.height, self.test_jp2_color_dims[1])
@@ -56,6 +57,9 @@ class InfoUnit(loris_t.LorisTest):
         self.assertEqual(info.sizes, self.test_jp2_color_sizes)
         self.assertEqual(info.ident, uri)
         self.assertEqual(info.protocol, PROTOCOL)
+
+        info = img_info.ImageInfo.from_image_file(uri, fp, fmt, formats, max_size_above_full=0)
+        self.assertTrue('sizeAboveFull' in info.profile[1]['supports'])
 
     def test_precinct_jp2_tiles_from_image(self):
         formats = [ "jpg", "png", "gif", "webp"]
@@ -109,8 +113,8 @@ class InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull",
-                    "regionSquare"
+                    "regionSquare",
+                    "sizeAboveFull"
                 ]
             }
         ]
@@ -124,6 +128,27 @@ class InfoUnit(loris_t.LorisTest):
         self.assertEqual(info.sizes, self.test_jp2_gray_sizes)
         self.assertEqual(info.ident, uri)
         self.assertEqual(info.protocol, PROTOCOL)
+
+    def test_info_from_jpg_marked_as_jp2(self):
+        fp = path.join(self.test_img_dir, '01', '03', '0001.jpg')
+        fmt = 'jp2'
+        ident = '01%2f03%2f0001.jpg'
+        uri = '%s/%s' % (self.URI_BASE, ident)
+        formats = [ "jpg", "png", "gif", "webp" ]
+        with self.assertRaises(loris_exception.ImageInfoException) as cm:
+            img_info.ImageInfo.from_image_file(uri, fp, fmt, formats)
+        self.assertEqual(cm.exception.message, 'Invalid JP2 file')
+
+    def test_info_from_invalid_src_format(self):
+        fp = path.join(self.test_img_dir, '01', '03', '0001.jpg')
+        fmt = 'invalid_format'
+        ident = '01%2f03%2f0001.jpg'
+        uri = '%s/%s' % (self.URI_BASE, ident)
+        formats = [ "jpg", "png", "gif", "webp" ]
+        error_message = 'Didn\'t get a source format, or at least one we recognize ("invalid_format")'
+        with self.assertRaises(loris_exception.ImageInfoException) as cm:
+            img_info.ImageInfo.from_image_file(uri, fp, fmt, formats)
+        self.assertEqual(cm.exception.message, error_message)
 
     def test_jpeg_info_from_image(self):
         fp = self.test_jpeg_fp
@@ -142,8 +167,8 @@ class InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull",
-                    "regionSquare"
+                    "regionSquare",
+                    "sizeAboveFull"
                 ]
             }
         ]
@@ -172,8 +197,8 @@ class InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull",
-                    "regionSquare"
+                    "regionSquare",
+                    "sizeAboveFull"
                 ]
             }
         ]
@@ -203,8 +228,8 @@ class InfoUnit(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull",
-                    "regionSquare"
+                    "regionSquare",
+                    "sizeAboveFull"
                 ]
             }
         ]
@@ -263,8 +288,8 @@ class InfoFunctional(loris_t.LorisTest):
                     "profileLinkHeader",
                     "mirroring",
                     "rotationArbitrary",
-                    "sizeAboveFull",
-                    "regionSquare"
+                    "regionSquare",
+                    "sizeAboveFull"
                 ]
             }
         ]

@@ -1,11 +1,12 @@
 # transformers.py
 # -*- coding: utf-8 -*-
 
+import multiprocessing
 from PIL import Image
 from PIL.ImageFile import Parser
 from PIL.ImageOps import mirror
 from logging import getLogger
-from loris_exception import LorisException
+from loris_exception import TransformException
 from math import ceil, log
 from os import makedirs, path, unlink, devnull
 from parameters import FULL_MODE
@@ -82,25 +83,17 @@ class _AbstractTransformer(object):
 
         if image_request.rotation_param.rotation != '0' and rotate:
             r = 0-float(image_request.rotation_param.rotation)
-            logger.debug('Rotating (PIL syntax): %s' % (repr(r),))
 
-            # NOT WORKING
             # We need to convert pngs here and not below if we want a
             # transparent background (A == Alpha layer)
-            # if float(image_request.rotation_param.rotation) % 90 != 0.0 and \
-            #     image_request.format == 'png':
-            #
-            #     logger.debug('*'*80)
-            #     logger.debug('here')
-            #     logger.debug('*'*80)
-                # if image_request.quality in ('gray', 'bitonal'):
-                #     im = im.convert('LA')
-                # else:
-                #     im = im.convert('RGBA')
-            # We get a 1 px border at left and top with multiples of 90 with
-            # expand for some reason, so:
-            # expand = bool(r % 90)
-            # logger.debug('Expand: %s' % (repr(expand),))
+            if float(image_request.rotation_param.rotation) % 90 != 0.0 and \
+                image_request.format == 'png':
+                
+                if image_request.quality in ('gray', 'bitonal'):
+                    im = im.convert('LA')
+                else:
+                    im = im.convert('RGBA')
+
             im = im.rotate(r, expand=True)
 
         if not im.mode.endswith('A'):
@@ -115,21 +108,22 @@ class _AbstractTransformer(object):
                 dither = Image.FLOYDSTEINBERG if self.dither_bitonal_images else Image.NONE
                 im = im.convert('1', dither=dither)
 
-            if image_request.format == 'jpg':
-                # see http://pillow.readthedocs.org/en/latest/handbook/image-file-formats.html#jpeg
-                im.save(target_fp, quality=90)
+        if image_request.format == 'jpg':
+            # see http://pillow.readthedocs.org/en/latest/handbook/image-file-formats.html#jpeg
+            im.save(target_fp, quality=90)
 
-            elif image_request.format == 'png':
-                # see http://pillow.readthedocs.org/en/latest/handbook/image-file-formats.html#png
-                im.save(target_fp, optimize=True, bits=256)
+        elif image_request.format == 'png':
+            # see http://pillow.readthedocs.org/en/latest/handbook/image-file-formats.html#png
+            im.save(target_fp, optimize=True, bits=256)
 
-            elif image_request.format == 'gif':
-                # see http://pillow.readthedocs.org/en/latest/handbook/image-file-formats.html#gif
-                im.save(target_fp)
+        elif image_request.format == 'gif':
+            # see http://pillow.readthedocs.org/en/latest/handbook/image-file-formats.html#gif
+            im.save(target_fp)
 
-            elif image_request.format == 'webp':
-                # see http://pillow.readthedocs.org/en/latest/handbook/image-file-formats.html#webp
-                im.save(target_fp, quality=90)
+        elif image_request.format == 'webp':
+            # see http://pillow.readthedocs.org/en/latest/handbook/image-file-formats.html#webp
+            im.save(target_fp, quality=90)
+         
 
 class _PillowTransformer(_AbstractTransformer):
     def __init__(self, config):
@@ -325,14 +319,15 @@ class OPJ_JP2Transformer(_AbstractJP2Transformer):
         self._derive_with_pil(im, target_fp, image_request, crop=False)
 
 class KakaduJP2Transformer(_AbstractJP2Transformer):
+
     def __init__(self, config):
         self.kdu_expand = config['kdu_expand']
-
         self.num_threads = config['num_threads']
         self.env = {
             'LD_LIBRARY_PATH' : config['kdu_libs'],
             'PATH' : config['kdu_expand']
         }
+        self.transform_timeout = config.get('timeout', 120)
         super(KakaduJP2Transformer, self).__init__(config)
 
     @staticmethod
@@ -383,38 +378,14 @@ class KakaduJP2Transformer(_AbstractJP2Transformer):
         logger.debug('kdu region parameter: %s' % (arg,))
         return arg
 
-    def transform(self, src_fp, target_fp, image_request):
-
-        # kdu writes to this:
-        fifo_fp = self._make_tmp_fp()
-
-        # kdu command
-        q = '-quiet'
-        t = '-num_threads %s' % (self.num_threads,)
-        i = '-i "%s"' % (src_fp,)
-        o = '-o %s' % (fifo_fp,)
-        reduce_arg = self._scales_to_reduce_arg(image_request)
-        red = '-reduce %s' % (reduce_arg,) if reduce_arg else ''
-        region_arg = self._region_to_kdu_arg(image_request.region_param)
-        reg = '-region %s' % (region_arg,) if region_arg else ''
-
-        kdu_cmd = ' '.join((self.kdu_expand,q,i,t,reg,red,o))
-
-        # make the named pipe
-        mkfifo_call = '%s %s' % (self.mkfifo, fifo_fp)
-        logger.debug('Calling %s' % (mkfifo_call,))
-        resp = subprocess.check_call(mkfifo_call, shell=True)
-
+    def _run_transform(self, target_fp, image_request, kdu_cmd, fifo_fp):
         try:
             # Start the kdu shellout. Blocks until the pipe is empty
-            logger.debug('Calling: %s' % (kdu_cmd,))
             kdu_expand_proc = subprocess.Popen(kdu_cmd, shell=True, bufsize=-1,
                 stderr=subprocess.PIPE, env=self.env)
-
             f = open(fifo_fp, 'rb')
-            logger.debug('Opened %s' % fifo_fp)
 
-             # read from the named pipe
+            # read from the named pipe
             p = Parser()
             while True:
                 s = f.read(1024)
@@ -422,21 +393,42 @@ class KakaduJP2Transformer(_AbstractJP2Transformer):
                     break
                 p.feed(s)
             im = p.close() # a PIL.Image
-
-            # finish kdu
-            kdu_exit = kdu_expand_proc.wait()
-            if kdu_exit != 0:
-                map(logger.error, kdu_expand_proc.stderr)
-
-            if self.map_profile_to_srgb and image_request.info.color_profile_bytes:  # i.e. is not None
-                emb_profile = cStringIO.StringIO(image_request.info.color_profile_bytes)
-                im = profileToProfile(im, emb_profile, self.srgb_profile_fp)
-
-            self._derive_with_pil(im, target_fp, image_request, crop=False)
-        except:
-            raise
         finally:
-            kdu_exit = kdu_expand_proc.wait()
+            stdoutdata, stderrdata = kdu_expand_proc.communicate()
+            kdu_exit = kdu_expand_proc.returncode
             if kdu_exit != 0:
-                map(logger.error, map(string.strip, kdu_expand_proc.stderr))
+                map(logger.error, stderrdata)
             unlink(fifo_fp)
+
+        if self.map_profile_to_srgb and image_request.info.color_profile_bytes:  # i.e. is not None
+            emb_profile = cStringIO.StringIO(image_request.info.color_profile_bytes)
+            im = profileToProfile(im, emb_profile, self.srgb_profile_fp)
+
+        self._derive_with_pil(im, target_fp, image_request, crop=False)
+
+    def transform(self, src_fp, target_fp, image_request):
+        fifo_fp = self._make_tmp_fp()
+        mkfifo_call = '%s %s' % (self.mkfifo, fifo_fp)
+        subprocess.check_call(mkfifo_call, shell=True)
+
+        # kdu command
+        q = '-quiet'
+        t = '-num_threads %s' % self.num_threads
+        i = '-i "%s"' % src_fp
+        o = '-o %s' % fifo_fp
+        reduce_arg = self._scales_to_reduce_arg(image_request)
+        red = '-reduce %s' % (reduce_arg,) if reduce_arg else ''
+        region_arg = self._region_to_kdu_arg(image_request.region_param)
+        reg = '-region %s' % (region_arg,) if region_arg else ''
+        kdu_cmd = ' '.join((self.kdu_expand,q,i,t,reg,red,o))
+
+        process = multiprocessing.Process(target=self._run_transform,
+                                          args=(target_fp, image_request, kdu_cmd, fifo_fp))
+        process.start()
+        process.join(self.transform_timeout)
+        if process.is_alive():
+            logger.info('terminating process for %s, %s' % (src_fp, target_fp))
+            process.terminate()
+            if path.exists(fifo_fp):
+                unlink(fifo_fp)
+            raise TransformException('transform process timed out')

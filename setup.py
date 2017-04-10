@@ -15,7 +15,6 @@ VERSION = loris.__version__
 
 EX_NOUSER = 67
 
-ETC_DIR_DEFAULT = '/etc/loris2'
 CONFIG_FILE_NAME = 'loris2.conf'
 
 BIN_DIR_DEFAULT = '/usr/local/bin'
@@ -25,7 +24,7 @@ CACHE_DIR_DEFAULT = '/var/cache/loris2'
 KDU_EXPAND_DEFAULT = os.path.join(BIN_DIR_DEFAULT, 'kdu_expand')
 KDU_HELP = 'Path to the Kakadu executable [Default: %s]' % (KDU_EXPAND_DEFAULT,)
 
-LIBKDU_DEFAULT = os.path.join(LIB_DIR_DEFAULT, 'libkdu.so')
+LIBKDU_DEFAULT = LIB_DIR_DEFAULT
 LIBKDU_HELP = 'Path to THE DIRECTORY THAT CONTAINS libkdu.so [Default: %s]' % (LIBKDU_DEFAULT,)
 
 LOG_DIR_DEFAULT = '/var/log/loris2'
@@ -234,7 +233,7 @@ setup(
     name='Loris',
     author='Jon Stroop',
     author_email='jpstroop@gmail.com',
-    url='https://github.com/pulibrary/loris',
+    url='https://github.com/loris-imageserver/loris',
     description = ('IIIF Image API 2.0 Level 2 compliant Image Server'),
     long_description=_read('README.md'),
     license='Simplified BSD',

@@ -1,4 +1,3 @@
-# from .abstract_resolver import AbstractResolverTest
 from loris.resolver import SimpleHTTPResolver
 from loris.loris_exception import ResolverException
 import os
@@ -8,6 +7,7 @@ import responses
 
 
 class SimpleHTTPResolverTest(unittest.TestCase):
+
     def setUp(self):
         super(SimpleHTTPResolverTest, self).setUp()
         tests_dir = os.path.dirname(os.path.realpath(__file__))
@@ -50,9 +50,9 @@ class SimpleHTTPResolverTest(unittest.TestCase):
                     'e4a',
                     '91b',
                     '032',
-                    'loris_cache.tif',
                 ]
-        self.expected_filepath = os.path.join(*expected_filepath_list)
+        self.expected_filedir = os.path.join(*expected_filepath_list)
+        self.expected_filepath = os.path.join(self.expected_filedir, 'loris_cache.tif')
         self.set_responses()
 
     def set_responses(self):
@@ -83,9 +83,15 @@ class SimpleHTTPResolverTest(unittest.TestCase):
                 content_type='application/html'
         )
 
+    def test_get_format(self):
+        self.resolver.default_format = 'tif'
+        self.assertEqual(self.resolver.get_format('0001.jp2', None), 'tif')
+        self.resolver.default_format = None
+        self.assertEqual(self.resolver.get_format('0001.jp2', 'tif'), 'tif')
+        self.assertEqual(self.resolver.get_format('0001.jp2', None), 'jp2')
+
     @responses.activate
     def test_bad_url(self):
-
         self.assertRaises(
                 ResolverException,
                 lambda: self.resolver.resolve(self.not_identifier_url)
@@ -97,6 +103,18 @@ class SimpleHTTPResolverTest(unittest.TestCase):
                 ResolverException,
                 lambda: self.resolver.resolve(self.not_identifier)
         )
+
+    def test_create_cache_dir(self):
+        self.assertFalse(os.path.exists(self.expected_filedir))
+        self.resolver._create_cache_dir(self.expected_filedir)
+        self.assertTrue(os.path.exists(self.expected_filedir))
+        self.resolver._create_cache_dir(self.expected_filedir)
+
+    @responses.activate
+    def test_cached_file_for_ident(self):
+        self.resolver.copy_to_cache(self.identifier)
+        self.assertTrue(os.path.isfile(self.expected_filepath))
+        self.assertEqual(self.resolver.cached_file_for_ident(self.identifier), self.expected_filepath)
 
     @responses.activate
     def test_resolve_001(self):
@@ -197,6 +215,7 @@ def suite():
             unittest.makeSuite(SimpleHTTPResolverTest, 'test')
     )
     return unittest.TestSuite(test_suites)
+
 
 if __name__ == '__main__':
         unittest.main()

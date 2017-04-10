@@ -11,7 +11,7 @@ impl = 'loris.resolver.SimpleFSResolver'
 src_img_root=/usr/local/share/images
 ```
 
-then `app.resolver.resolve(ident)` will return 
+then `app.resolver.resolve(ident)` will return
 
 ```
 /usr/local/share/images/01/02/0001.jp2
