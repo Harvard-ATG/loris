@@ -63,7 +63,7 @@ class S3Resolver(_AbstractResolver):
             if bucket.get_key(keyname):
                 return True
             else:
-                logger.debug('AWS key %s does not exist in bucket %s' % (keyname, bucketname))
+                logger.warning('AWS key %s does not exist in bucket %s' % (keyname, bucketname))
                 return False
 
     def resolve(self, ident):
